@@ -18,6 +18,11 @@ import argparse
 ### https://docs.python.org/3/library/os.html
 import os
 
+### PyPDF2 is a library for manipulating PDF files
+### It allows you to read, write, and manipulate PDF files in Python
+### https://pypdf2.readthedocs.io/en/latest/
+from PyPDF2 import PdfMerger
+
 ### Creats the main parser object. Think of this as the main entry point for the CLI (Think root node of the CLI tree)
 ### Description is optional, but will appear when running --help
 parser = argparse.ArgumentParser(description="PyToolbox CLI Utility Suite")
@@ -52,6 +57,17 @@ rename_parser.add_argument("--prefix", help="Prefix to add to each file", defaul
 rename_parser.add_argument("--suffix", help="Suffix to add to each file", default="")
 rename_parser.add_argument(
     "--numbered", action="store_true", help="Add sequential numbering to filenames"
+)
+
+### This is the setup for the combine command
+### Adding arguments to the combine parser object
+### nargs is the number of arguments to be expected
+### The "+" means one or more arguments are expected
+combine_parser.add_argument(
+    "files", nargs="+", help="PDF files to combine (in order)"
+)
+combine_parser.add_argument(
+    "--output", default="combined.pdf", help="Name of the output file"
 )
 
 ### This function will be called when the rename command is executed
@@ -103,9 +119,46 @@ def handle_rename(args):
         # Print the old and new names
         print(f"Renamed '{filename}' -> '{new_name}'")
 
+# Function to handle the combine command
+from PyPDF2 import PdfMerger
+def handle_combine(args):
+
+    ### Creates a PdfMerger object to handle the merging
+    # Initialize object
+    merger = PdfMerger()
+
+    # Skip the non-PDF files
+    for file in args.files:
+        if not file.endswith(".pdf"):
+            print(f"Skipping non-PDF: {file}")
+            continue
+        
+        # Attemps to append each file to the merger
+        try:
+            merger.append(file)
+            print(f"Added: {file}")
+        except FileNotFoundError: # File not found
+            print(f"File not found: {file}")
+        except Exception as e: # General exception handling
+            # Handles other exceptions (e.g., file not readable)
+            print(f"Error adding {file}: {e}")
+
+    ### merger.write() writes the merged PDF to the specified output file
+    ### merger.close() closes the merger object
+    ### This is important to free up resources and finalize the output file
+    # Attempt to write the merged PDF to the output file
+    try:
+        merger.write(args.output)
+        merger.close()
+        print(f"Combined PDF saved as: {args.output}") # Output message
+    except Exception as e: # General exception handling
+        print(f"Failed to write output PDF: {e}")
+
 # Main function to handle the command-line interface
 args = parser.parse_args()
 
 # Check if a command was provided
 if args.command == "rename":
     handle_rename(args)
+elif args.command == "combine":
+    handle_combine(args)
