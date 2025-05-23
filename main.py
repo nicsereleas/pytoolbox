@@ -23,7 +23,15 @@ import os
 ### https://pypdf2.readthedocs.io/en/latest/
 from PyPDF2 import PdfMerger
 
-### Creats the main parser object. Think of this as the main entry point for the CLI (Think root node of the CLI tree)
+
+### FPDF is a library for creating PDF files in Python
+### It allows you to create PDF documents from scratch, add text, images, and other elements
+### https://pyfpdf.readthedocs.io/en/latest/
+from fpdf import FPDF
+
+import pdfplumber
+
+### Creates the main parser object. Think of this as the main entry point for the CLI (Think root node of the CLI tree)
 ### Description is optional, but will appear when running --help
 parser = argparse.ArgumentParser(description="PyToolbox CLI Utility Suite")
 
@@ -37,7 +45,7 @@ subparsers = parser.add_subparsers(dest="command")
 ### The help argument is a short description of the subcommand when running --help
 ### Each subcommand will have its own parser object and functionality
 # Rename command
-rename_parser = subparsers.add_parser("rename", help="Batch rename files")
+rename_parser = subparsers.add_parser("rename", help="Batch rename files or overwrite individual files")
 
 # Combine command
 combine_parser = subparsers.add_parser("combine", help="Combine PDF files")
@@ -58,6 +66,8 @@ rename_parser.add_argument("--suffix", help="Suffix to add to each file", defaul
 rename_parser.add_argument(
     "--numbered", action="store_true", help="Add sequential numbering to filenames"
 )
+rename_parser.add_argument("--overwrite", nargs='+', help="Overwrite existing files, change the base name of the file (do not include extension)", default=None)
+rename_parser.add_argument("--txtpdfconvert", action="store_true", help="Convert .txt files to .pdf files or a .pdf file to .txt file", default=False)
 
 ### This is the setup for the combine command
 ### Adding arguments to the combine parser object
@@ -83,53 +93,74 @@ analyzer_parser.add_argument("--chars", action="store_true", help="Show total nu
 # Function to handle the rename command
 def handle_rename(args):
     try:
-        ### os.listdir() returns a list of the names
-        ### of the entries in the directory given by path
-        ### This is the equivalent of running ls in the terminal
-        files = os.listdir(args.directory) 
-
-        # Exception handling for directory not found
+        # Determine whether the input is a directory or a single file
+        if os.path.isdir(args.directory):
+            files = os.listdir(args.directory)
+            files = [os.path.join(args.directory, f) for f in files]
+        elif os.path.isfile(args.directory):
+            files = [args.directory]
+        else:
+            print(f"Path not found: {args.directory}")
+            return
+        
     except FileNotFoundError:
-        print(f"Error: Directory '{args.directory}' not found.")
+        print(f"Error: '{args.directory}' not found.")
         return
 
-        # Loop through files in the directory and their index
-    for idx, filename in enumerate(files):
 
-        ### os.path.join() joins one or more path components intelligently
-        ### This is the equivalent of running cd in the terminal
-        ### handles different OS path separators (e.g., / for Linux, \ for Windows)
-        old_path = os.path.join(args.directory, filename)
+    for idx, filepath in enumerate(files):
+        # Skip subdirectories or non-files
+        if not os.path.isfile(filepath):
+            continue
 
-        # Check if the path is a file
-        if not os.path.isfile(old_path):
-            continue  # Skip subdirectories or non-files
-        
-        ### os.path.splitext() splits the filename into a tuple (root, ext)
-        ### root is the filename without the extension
-        ### ext is the file extension (e.g., .txt, .jpg)
-        name, ext = os.path.splitext(filename)
+        name, ext = os.path.splitext(os.path.basename(filepath))
+        if args.overwrite and idx < len(args.overwrite):
+            new_base = args.overwrite[idx]
+        else:
+            new_base = name
+        new_name = f"{args.prefix}{new_base}{args.suffix}{ext}"
+        # If numbering is enabled, it overrides both name and overwrite
+        if args.numbered:
+            new_name = f"{args.prefix}{idx+1}{args.suffix}{ext}"
+
+        # Build the new path in the same directory
+        new_path = os.path.join(os.path.dirname(filepath), new_name)
+
+        # Check if the file is a .txt file and if the user wants to convert it to .pdf
+        if args.txtpdfconvert and ext.lower() == ".txt":
+            pdf = FPDF() # Create a PDF object
+            pdf.add_page() # Add a page to the PDF
+            pdf.set_font("Arial", size = 15) # Set the font and size
+            
+            # Read the .txt file and add its content to the PDF
+            with open(filepath, "r", encoding="utf-8") as f:
+                for line in f:
+                    pdf.cell(200, 10, txt=line.encode('latin-1', 'replace').decode('latin-1'), ln=True) # Add content to the PDF
+            output_dir = "./output_pdf" # Create the output directory
+            os.makedirs(output_dir, exist_ok=True) # Create the output directory if it doesn't exist
+            output_pdf = os.path.join(output_dir, f"{args.prefix}{name}{args.suffix}.pdf") # Create the output PDF name
+            pdf.output(output_pdf) # Create the PDF file
+
+        # Check if the file is a .pdf file and if the user wants to convert it to .txt
+        elif args.txtpdfconvert and ext.lower() == ".pdf":
+            with pdfplumber.open(filepath) as pdf: # Open the PDF file
+                text = "" # Initialize an empty string to store the text
+                for page in pdf.pages: # Iterate through each page of the PDF
+                    text += page.extract_text() # Extract text from the page
+            output_dir = "./output_txt"
+            os.makedirs(output_dir, exist_ok=True)
+            output_txt = os.path.join(output_dir, f"{args.prefix}{name}{args.suffix}.txt") # Create the output .txt name
+            # Write the extracted text to a .txt file
+            with open(output_txt, "w", encoding="utf-8") as f:
+                f.write(text)
 
 
-        # Construct the new filename
-        new_name = f"{args.prefix}{name}{args.suffix}{ext}"
-        # Add numbering if specified
-        if args.numbered: 
-            new_name = f"{args.prefix}{idx+1}{args.suffix}{ext}" #Replace the file name with the index + 1
+        os.rename(filepath, new_path)
+        print(f"Renamed '{os.path.basename(filepath)}' -> '{new_name}'")
 
-        # Rename the file
-        new_path = os.path.join(args.directory, new_name)
 
-        ### os.rename() renames the file or directory
-        ### The first argument is the old path (current name)
-        ### The second argument is the new path (new name)
-        os.rename(old_path, new_path)
-
-        # Print the old and new names
-        print(f"Renamed '{filename}' -> '{new_name}'")
 
 # Function to handle the combine command
-from PyPDF2 import PdfMerger
 def handle_combine(args):
 
     ### Creates a PdfMerger object to handle the merging
