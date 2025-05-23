@@ -115,6 +115,15 @@ def handle_rename(args):
 
         name, ext = os.path.splitext(os.path.basename(filepath))
         if args.overwrite and idx < len(args.overwrite):
+            if args.overwrite[idx] is None:
+                print(f"Error: Overwrite name cannot be None")
+                return
+            elif args.overwrite[idx] == "":
+                print(f"Error: Overwrite name cannot be empty")
+                return
+            elif len(args.overwrite) != idx + 1:
+                print(f"Error: Overwrite name must be the same length as the number of files")
+                return
             new_base = args.overwrite[idx]
         else:
             new_base = name
