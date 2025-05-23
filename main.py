@@ -43,7 +43,7 @@ rename_parser = subparsers.add_parser("rename", help="Batch rename files")
 combine_parser = subparsers.add_parser("combine", help="Combine PDF files")
 
 # Test Analyzer command
-analyzer_parser = subparsers.add_parser("analyze", help="Analyze a file")
+analyzer_parser = subparsers.add_parser("analyze", help="Analyze a .txt file", description="If not flags are specified, all will be shown")
 
 ### add_argument() tells the parser object what argument to expect when the subcommand is called
 ### The first argument is the name of the argument
@@ -69,6 +69,15 @@ combine_parser.add_argument(
 combine_parser.add_argument(
     "--output", default="combined.pdf", help="Name of the output file"
 )
+
+### This is the setup for the analyzer command
+
+analyzer_parser.add_argument("file", help="Text file to analyze")
+analyzer_parser.add_argument("--freq", action="store_true", help="Show word frequency count")
+analyzer_parser.add_argument("--lines", action="store_true", help="Show total number of lines")
+analyzer_parser.add_argument("--words", action="store_true", help="Show total number of words")
+analyzer_parser.add_argument("--chars", action="store_true", help="Show total number of characters")
+
 
 ### This function will be called when the rename command is executed
 # Function to handle the rename command
@@ -154,6 +163,40 @@ def handle_combine(args):
     except Exception as e: # General exception handling
         print(f"Failed to write output PDF: {e}")
 
+from collections import Counter
+
+def handle_analyze(args):
+    try:
+        # Open the file in read mode and save the file in text
+        with open(args.file, "r", encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError: # General exception handling
+        print(f"File not found: {args.file}")
+        return
+
+    # Split the text into lines, words, and characters
+    lines = text.splitlines()
+    words = text.split()
+    chars = len(text)
+
+    # Count the frequency of each word
+    freq = Counter(words)
+
+    if not (args.freq or args.lines or args.words or args.chars):
+        args.freq = args.lines = args.words = args.chars = True
+
+    if args.lines:
+        print(f"Total lines: {len(lines)}")
+    if args.words:
+        print(f"Total words: {len(words)}")
+    if args.chars:
+        print(f"Total characters: {chars}")
+    if args.freq:
+        print("\nTop 10 most common words:")
+        for word, count in freq.most_common(10):
+            print(f"{word}: {count}")
+
+
 # Main function to handle the command-line interface
 args = parser.parse_args()
 
@@ -162,3 +205,5 @@ if args.command == "rename":
     handle_rename(args)
 elif args.command == "combine":
     handle_combine(args)
+elif args.command == "analyze":
+    handle_analyze(args)
