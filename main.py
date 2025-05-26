@@ -30,6 +30,7 @@ from PyPDF2 import PdfMerger
 from fpdf import FPDF
 
 import pdfplumber
+import string
 
 ### Creates the main parser object. Think of this as the main entry point for the CLI (Think root node of the CLI tree)
 ### Description is optional, but will appear when running --help
@@ -50,9 +51,11 @@ rename_parser = subparsers.add_parser("rename", help="Batch rename files or over
 # Combine command
 combine_parser = subparsers.add_parser("combine", help="Combine PDF files")
 
-# Test Analyzer command
+# Text Analyzer command
 analyzer_parser = subparsers.add_parser("analyze", help="Analyze a .txt file", description="If not flags are specified, all will be shown")
 
+# Clean command
+clean_parser = subparsers.add_parser("clean", help="Clean up files in a directory", description="Used to clean up files in a directory. Remove whitespce, remove special characters, etc.")
 ### add_argument() tells the parser object what argument to expect when the subcommand is called
 ### The first argument is the name of the argument
 ### The help argument is a short description of the argument when running --help
@@ -79,6 +82,7 @@ combine_parser.add_argument(
 combine_parser.add_argument(
     "--output", default="combined.pdf", help="Name of the output file"
 )
+combine_parser.add_argument('--cover', default='Cover Page', help='Add a cover page to the combined PDF')
 
 ### This is the setup for the analyzer command
 
@@ -87,7 +91,12 @@ analyzer_parser.add_argument("--freq", action="store_true", help="Show word freq
 analyzer_parser.add_argument("--lines", action="store_true", help="Show total number of lines")
 analyzer_parser.add_argument("--words", action="store_true", help="Show total number of words")
 analyzer_parser.add_argument("--chars", action="store_true", help="Show total number of characters")
+analyzer_parser.add_argument("--unique", action="store_true", help="Show unique words only")
 
+
+clean_parser.add_argument("directory", help="Directory to clean up files")
+clean_parser.add_argument("--remove-whitespace", action="store_true", help="Remove whitespace from filenames")
+clean_parser.add_argument("--remove-special", action="store_true", help="Remove special characters from filenames")
 
 ### This function will be called when the rename command is executed
 # Function to handle the rename command
@@ -121,7 +130,7 @@ def handle_rename(args):
             elif args.overwrite[idx] == "":
                 print(f"Error: Overwrite name cannot be empty")
                 return
-            elif len(args.overwrite) != idx + 1:
+            elif len(args.overwrite) != len(files):
                 print(f"Error: Overwrite name must be the same length as the number of files")
                 return
             new_base = args.overwrite[idx]
@@ -175,7 +184,14 @@ def handle_combine(args):
     ### Creates a PdfMerger object to handle the merging
     # Initialize object
     merger = PdfMerger()
-
+    if args.cover:
+        # Create a cover page if the --cover flag is set
+        cover_pdf = FPDF()
+        cover_pdf.add_page()
+        cover_pdf.set_font("Arial", size=24)
+        cover_pdf.cell(200, 10, txt=args.cover, ln=True, align='C')
+        cover_pdf.output("cover.pdf")
+    merger.append("cover.pdf")
     # Skip the non-PDF files
     for file in args.files:
         if not file.endswith(".pdf"):
@@ -198,6 +214,8 @@ def handle_combine(args):
     # Attempt to write the merged PDF to the output file
     try:
         merger.write(args.output)
+        if args.cover and os.path.exists("cover.pdf"):
+            os.remove("cover.pdf")
         merger.close()
         print(f"Combined PDF saved as: {args.output}") # Output message
     except Exception as e: # General exception handling
@@ -222,7 +240,7 @@ def handle_analyze(args):
     # Count the frequency of each word
     freq = Counter(words)
 
-    if not (args.freq or args.lines or args.words or args.chars):
+    if not (args.freq or args.lines or args.words or args.chars or args.unique):
         args.freq = args.lines = args.words = args.chars = True
 
     if args.lines:
@@ -235,6 +253,68 @@ def handle_analyze(args):
         print("\nTop 10 most common words:")
         for word, count in freq.most_common(10):
             print(f"{word}: {count}")
+    if args.unique:
+        unique_words = set()
+        for word in words:
+            unique_words.add(word.strip(string.punctuation).lower())
+        print(f"\nTotal unique words: {len(unique_words)}")
+        print("Unique words:")
+        for word in sorted(unique_words):
+            print(word)
+
+def handle_clean(args):
+    try:
+        files = os.listdir(args.directory)
+    except FileNotFoundError:
+        print(f"Directory not found: {args.directory}")
+        return
+
+    for filename in files:
+        old_path = os.path.join(args.directory, filename)
+        if not os.path.isfile(old_path):
+            continue  # Skip subdirectories
+
+        # --- Rename Logic ---
+        name, ext = os.path.splitext(filename)
+        new_name = name
+
+        if args.remove_whitespace:
+            new_name = new_name.replace(" ", "_")
+
+        if args.remove_special:
+            new_name = ''.join(c for c in new_name if c.isalnum() or c == '_')
+
+        new_name += ext
+        new_path = os.path.join(args.directory, new_name)
+
+        if old_path != new_path:
+            os.rename(old_path, new_path)
+            print(f"Renamed '{filename}' -> '{new_name}'")
+        else:
+            print(f"No change needed for '{filename}'")
+
+        # --- Content Cleaning for .txt files ---
+        if ext.lower() == ".txt":
+            try:
+                with open(new_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                cleaned = content
+
+                if args.remove_whitespace:
+                    cleaned = ''.join(cleaned.split())  # removes all whitespace (incl. newlines)
+
+                if args.remove_special:
+                    cleaned = ''.join(c for c in cleaned if c.isalnum() or c.isspace())
+
+                with open(new_path, "w", encoding="utf-8") as f:
+                    f.write(cleaned)
+
+                print(f"Cleaned content in: {new_name}")
+
+            except Exception as e:
+                print(f"Error processing {new_name}: {e}")
+
 
 
 # Main function to handle the command-line interface
@@ -247,3 +327,5 @@ elif args.command == "combine":
     handle_combine(args)
 elif args.command == "analyze":
     handle_analyze(args)
+elif args.command == "clean":
+    handle_clean(args)
